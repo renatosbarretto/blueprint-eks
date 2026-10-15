@@ -1,0 +1,5 @@
+# Gateway API / AWS Load Balancer Controller - clusterName, serviceAccount.roleArn, vpcId set by Terraform
+# Optional overrides
+enableShield: false
+enableWaf: false
+enableWafv2: false

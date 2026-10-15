@@ -1,0 +1,8 @@
+# User overrides; identity and scheduling are managed by Terraform.
+controller:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      memory: 1Gi

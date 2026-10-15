@@ -1,0 +1,3 @@
+# NodePool and EC2NodeClass are generated and applied by Terraform.
+# See terraform/templates/karpenter-provisioners.yaml.tpl.
+# Do not apply a second manifest to the same default resources.

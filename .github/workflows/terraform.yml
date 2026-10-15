@@ -1,0 +1,36 @@
+name: Validate
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.1'
+          terraform_wrapper: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install PyYAML==6.0.2
+      - name: Static repository checks
+        run: python3 scripts/check-repository.py
+      - name: Terraform format
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: Terraform init (no AWS backend)
+        run: terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate -no-color
+      - name: Offline infrastructure tests
+        run: terraform -chdir=terraform test -no-color
+      - name: Shell syntax
+        run: for script in scripts/*.sh; do bash -n "$script"; done

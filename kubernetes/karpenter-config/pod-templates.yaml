@@ -1,0 +1,14 @@
+# Example workload that triggers Karpenter scaling
+# apiVersion: v1
+# kind: Pod
+# metadata:
+#   name: inflate
+# spec:
+#   containers:
+#     - name: inflate
+#       image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+#       resources:
+#         requests:
+#           cpu: "1"
+#           memory: 1Gi
+#   # No nodeSelector - Karpenter will provision a node

@@ -1,0 +1,35 @@
+# Terraform
+.terraform/
+terraform/.tf-apply-kubeconfig
+terraform/generated-karpenter-provisioners.yaml
+terraform/generated-vpc-cni-eniconfigs.yaml
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+tfplan
+*.plan
+*.tfbackend
+!*.tfbackend.example
+.tfdata/
+.plans/
+Untitled
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+
+# Lock file: descomente para não versionar (recomendado versionar para reprodutibilidade)
+# .terraform.lock.hcl
+
+# OS / IDE
+.DS_Store
+.idea/
+*.swp
+*.swo
+
+# Local notes (not published)
+RELATORIO_GEMINI.md
+docs/REVISAO_PRE_GITHUB.md
+docs/superpowers/

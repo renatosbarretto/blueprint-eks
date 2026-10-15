@@ -1,0 +1,13 @@
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+configs:
+  params:
+    server.insecure: false
+controller:
+  replicas: 1
+repoServer:
+  replicas: 1

@@ -1,0 +1,79 @@
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Protected deployment environment
+        options: [dev, staging, prod]
+        required: true
+      apply:
+        type: boolean
+        description: Apply after planning (otherwise plan only)
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    # A dedicated runner must have network access to the private EKS API.
+    runs-on: [self-hosted, linux, eks-deploy]
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.1'
+          terraform_wrapper: false
+      - name: Check runner tools and environment configuration
+        env:
+          ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          test -n "$ROLE_ARN"
+          test -n "$AWS_REGION"
+          aws --version
+          kubectl version --client
+          python3 --version
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Write environment configuration
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+          TFVARS: ${{ secrets.TFVARS_HCL }}
+          BACKEND: ${{ secrets.BACKEND_HCL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$TFVARS"
+          test -n "$BACKEND"
+          printf '%s\n' "$TFVARS" > "terraform/environments/$DEPLOY_ENV/terraform.tfvars"
+          printf '%s\n' "$BACKEND" > "terraform/environments/$DEPLOY_ENV/backend.tfbackend"
+      - name: Plan or apply
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          if [[ "$APPLY" == true ]]; then
+            bash scripts/deploy.sh "$DEPLOY_ENV" --yes
+          else
+            source scripts/common.sh "$DEPLOY_ENV"
+            bash "$SCRIPT_DIR/init.sh" "$DEPLOY_ENV"
+            terraform plan -input=false -lock-timeout=5m -var-file="$VAR_FILE"
+          fi
+      - name: Remove sensitive runner artifacts
+        if: always()
+        run: |
+          rm -f terraform/environments/*/terraform.tfvars terraform/environments/*/backend.tfbackend
+          rm -f terraform/.tf-apply-kubeconfig
+          rm -rf terraform/.plans terraform/.tfdata

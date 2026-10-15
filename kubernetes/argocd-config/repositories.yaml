@@ -1,0 +1,13 @@
+# Example ArgoCD repository config - apply after ArgoCD is installed
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: repo-myapp
+#   namespace: argocd
+#   labels:
+#     argocd.argoproj.io/secret-type: repository
+# stringData:
+#   url: https://github.com/org/repo
+#   type: git
+#   password: ""
+#   username: ""
