@@ -31,5 +31,4 @@ override.tf.json
 
 # Local notes (not published)
 RELATORIO_GEMINI.md
-docs/REVISAO_PRE_GITHUB.md
-docs/superpowers/
+docs/

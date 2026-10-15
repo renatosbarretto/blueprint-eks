@@ -60,7 +60,6 @@ terraform/
 helm/                  # values passed to ArgoCD, Karpenter and the LB controller
 kubernetes/            # ArgoCD config and sample workload
 scripts/               # init / deploy / destroy (per-environment state) + diagnostics
-docs/                  # operations guide and troubleshooting notes
 ```
 
 ## Requirements
@@ -94,12 +93,39 @@ Each environment uses its own `TF_DATA_DIR` (`terraform/.tfdata/<env>`) and stat
 
 To destroy an environment, run `./scripts/destroy.sh dev`. The script creates a destroy plan and applies it only after you type `destroy-dev`.
 
-See [docs/OPERATIONS.md](docs/OPERATIONS.md) for CI/CD setup, node draining and recovery.
+### Remote state
+
+Create a dedicated S3 bucket with versioning, default encryption and Block Public Access, then set `bucket` in `backend.tfbackend`. Keep `key = "eks-blueprint/<env>/terraform.tfstate"`; the scripts reject other keys. Locking uses S3 native lock files (`use_lockfile = true`), so no DynamoDB table is needed. Never commit `terraform.tfstate`, `tfplan` or `*.tfplan`, because plans contain a copy of the state.
+
+### Draining one node
+
+```bash
+./scripts/cordon-and-rollout.sh <expected-kube-context> <node-name>
+```
+
+The script checks the context, refuses Fargate nodes, asks you to confirm the node name, respects PodDisruptionBudgets and uncordons the node if the drain fails. In normal operation, prefer Karpenter disruption (drift, consolidation, expiry).
+
+### Recovery without state
+
+`scripts/cleanup-aws-resources.sh` is retired: the old version deleted resources by name pattern and could release Elastic IPs that belonged to other projects. Instead, restore the previous state version from the versioned S3 bucket (or `terraform import` the remaining resources), then run `./scripts/destroy.sh <env>` and review the destroy plan before you confirm it.
+
+### Upgrades
+
+- Kubernetes: change `cluster_version` one minor version at a time, after you check the Karpenter compatibility matrix.
+- Gateway API: upgrade the LB controller and the CRDs together in `modules/gateway-api` (LBC v2.14.x requires Gateway API standard CRDs v1.2.0+).
+- Pin `karpenter_ami_alias` (for example `al2023@v20260101`) in production so that node AMIs change only when you decide.
 
 ## CI/CD
 
 - **Validate** (`terraform.yml`) runs on every push and pull request without AWS credentials: repository hygiene (no state, plans, tfvars or obvious secrets), YAML/JSON parsing, tfvars example parsing, `terraform fmt`, `validate`, `terraform test` and `bash -n`.
 - **Deploy** (`deploy.yml`) is manual (`workflow_dispatch`) and runs only from `main`. It uses a protected GitHub environment, OIDC (`vars.AWS_ROLE_ARN`) and a self-hosted runner that can reach the private endpoint. It runs a plan only unless you select `apply`.
+
+To set up the deploy workflow:
+
+1. Bootstrap the stack once from an administrator session with `enable_github_actions_oidc = true`, `github_environment = "<env>"` and `github_deploy_policy_arns` set to managed policies you have reviewed. The policies must cover this stack (VPC, EKS, IAM, KMS, SQS, EventBridge, CloudWatch Logs) and the state bucket. Set `github_create_oidc_provider = false` if the account already has the GitHub OIDC provider.
+2. Create a GitHub environment with the same name. Restrict it to the `main` branch and add required reviewers.
+3. Set the environment variables `AWS_ROLE_ARN` (output `github_actions_role_arn`) and `AWS_REGION`, and the secrets `TFVARS_HCL` and `BACKEND_HCL` (contents of the two environment files).
+4. Register a self-hosted runner with the labels `self-hosted, linux, eks-deploy`, network access to the private EKS endpoint, and the AWS CLI, `kubectl` and `python3` installed.
 
 ## Security defaults
 

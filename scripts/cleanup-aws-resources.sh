@@ -6,5 +6,5 @@ printf '%s\n' \
   'Automatic cleanup without state has been retired.' \
   'Restore the S3 state version (or import resources) before deleting anything.' \
   'Then use scripts/destroy.sh ENV to inspect and confirm the destroy plan.' \
-  'See docs/OPERATIONS.md. No AWS resources were changed.' >&2
+  'See "Recovery without state" in README.md. No AWS resources were changed.' >&2
 exit 1
