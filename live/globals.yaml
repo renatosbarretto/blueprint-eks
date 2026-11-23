@@ -1,0 +1,97 @@
+# Defaults compartilhados por todos os clusters.
+# Merge raso: defaults ← clusters/<amb>/<conta>/account.yaml ← <cluster>.yaml
+# (mapas como chart_versions são substituídos inteiros, não mesclados).
+
+defaults:
+  project: eks-blueprint
+  # region / availability_zones / domain_name / route53_* vêm do account.yaml
+  region: us-east-1
+  availability_zones: [us-east-1a, us-east-1b, us-east-1c]
+
+  # --- Control plane ---
+  cluster_version: "1.37"
+  # STANDARD: cluster é forçado a upgrade no fim do suporte padrão em vez de
+  # cair em extended support (~6x o preço do control plane).
+  support_type: STANDARD
+  deletion_protection: false
+  # CIDRs que alcançam o endpoint público da API. Restrinja (VPN/escritório).
+  api_public_access_cidrs: ["0.0.0.0/0"]
+  cluster_log_retention_days: 30
+  # Role IAM break-glass (admin, exige MFA) fora do Identity Center.
+  enable_breakglass_role: true
+
+  # --- Rede ---
+  # vpc_cidr (no cluster): /16 a /18. Layout: públicas /24 (no 1º /19), privadas /19 por AZ.
+  nat_gateway_mode: single # single | per_az
+  # Interface endpoints (~US$7/mês por endpoint por AZ). S3 gateway é sempre criado (grátis).
+  vpc_interface_endpoints: [] # ex: [ecr.api, ecr.dkr, sts, ec2, sqs, logs]
+  enable_flow_logs: false
+  flow_logs_retention_days: 14
+
+  # --- Karpenter ---
+  karpenter_version: "1.15.1"
+  karpenter_replicas: 1
+  # Fixe a versão em hml/prd e promova dev → hml → prd. @latest recicla nós a cada AMI nova.
+  karpenter_ami_alias: al2023@v20261119
+  karpenter_arch: [amd64]
+  karpenter_capacity_types: [spot, on-demand]
+  karpenter_limits:
+    cpu: "100"
+    memory: 400Gi
+
+  # --- Addons EKS ---
+  # Vazio = versão default da AWS para a cluster_version. Fixe por addon se precisar:
+  #   eks_addon_versions: { vpc-cni: v1.20.0-eksbuild.1 }
+  eks_addon_versions: {}
+  enable_network_policy: true
+
+  # --- Versões de charts Helm ---
+  chart_versions:
+    aws_load_balancer_controller: "3.6.3"
+    external_dns: "1.15.0"
+    external_secrets: "0.16.2"
+    argocd: "7.7.16"
+  gateway_api_version: v1.6.0
+
+  # --- Stacks (enable_*) ---
+  enable_vpc: true
+  enable_eks: true
+  enable_karpenter: true
+  enable_eks_addons: true
+  enable_ebs_csi: true
+  enable_metrics_server: true
+  enable_node_monitoring_agent: true
+  enable_cloudwatch_observability: false
+  enable_tenants: true
+  enable_gateway_api: false
+  enable_external_dns: false
+  enable_external_secrets: false
+  enable_argocd: false
+
+  # Domínio (external-dns publica em <environment>.<domain_name>)
+  domain_name: ""
+  route53_hosted_zone_id: ""
+  # Zona em outra conta: role a ser assumida pelo external-dns (cross-account).
+  route53_assume_role_arn: ""
+
+  tenants: []
+  extra_tags: {}
+
+# Access Entries aplicadas a todos os clusters (cluster-scope).
+# Informe sso_permission_set (resolve AWSReservedSSO_<set>_* na conta) OU principal_arn.
+# principal_arn aceita ${account_id} e ${region}.
+#
+# Roles do GitHub Actions (scripts/bootstrap-github-oidc.sh) precisam estar aqui,
+# senão os providers kubernetes/helm falham (bootstrap_cluster_creator_admin_permissions=false).
+# Rode o bootstrap na conta ANTES do primeiro apply: access entry exige a role existente.
+access_entries:
+  - name: sso-admins-production
+    sso_permission_set: admins-production
+    policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+  # plan: AdminView lê Secrets (o helm guarda os releases neles); View não lê.
+  - name: gha-plan
+    principal_arn: arn:aws:iam::${account_id}:role/eks-blueprint-gha-plan
+    policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy
+  - name: gha-apply
+    principal_arn: arn:aws:iam::${account_id}:role/eks-blueprint-gha-apply
+    policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy

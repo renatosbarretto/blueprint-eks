@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Validar cartões de cluster
+        run: python3 -I scripts/validate-cluster.py
+
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [vpc, eks, eks-addons, karpenter, tenants, gateway-api, external-dns, external-secrets, argocd]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.1
+      - name: fmt
+        run: terraform fmt -check -recursive modules/${{ matrix.module }}
+      - name: init
+        working-directory: modules/${{ matrix.module }}
+        run: terraform init -backend=false -input=false
+      - name: validate
+        working-directory: modules/${{ matrix.module }}
+        env:
+          AWS_REGION: us-east-1
+        run: terraform validate
+      - name: test
+        working-directory: modules/${{ matrix.module }}
+        run: |
+          if [ -d tests ]; then terraform test; else echo "sem testes"; fi
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install checkov
+      - name: checkov
+        run: checkov -d modules --framework terraform --quiet --compact

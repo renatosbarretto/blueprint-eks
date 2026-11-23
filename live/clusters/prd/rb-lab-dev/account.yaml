@@ -1,0 +1,10 @@
+# Conta AWS RB-LAB-DEV. Vale para todos os clusters desta pasta.
+# Hoje (lab): ambientes simulados por VPC na mesma conta.
+# Futuro: uma conta por ambiente — renomeie a pasta para o nome da conta e troque o account_id.
+account_id: "280912093812"
+region: us-east-1
+availability_zones: [us-east-1a, us-east-1b, us-east-1c]
+
+# DNS: external-dns publica em <environment>.<domain_name>
+domain_name: brttech.dev
+route53_hosted_zone_id: Z09087232IC05YG46FH45

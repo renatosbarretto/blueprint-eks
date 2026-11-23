@@ -1,0 +1,130 @@
+# Namespace echo vem do Terraform (tenant "echo" no cartão lab-dev).
+# ALB público (sem isso o LBC cria internal-*)
+apiVersion: gateway.k8s.aws/v1
+kind: LoadBalancerConfiguration
+metadata:
+  name: public-alb
+  namespace: echo
+spec:
+  scheme: internet-facing
+  listenerConfigurations:
+    - protocolPort: HTTPS:443
+      defaultCertificate: arn:aws:acm:us-east-1:280912093812:certificate/3d271161-a734-4759-95ee-7cbc3c4c666b
+---
+# Com Karpenter/pods IP: targetType=ip (ClusterIP ok). Instance exige NodePort/LB.
+apiVersion: gateway.k8s.aws/v1
+kind: TargetGroupConfiguration
+metadata:
+  name: echo
+  namespace: echo
+spec:
+  targetReference:
+    kind: Service
+    name: echo
+  defaultConfiguration:
+    targetType: ip
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: echo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: echo
+  template:
+    metadata:
+      labels:
+        app: echo
+    spec:
+      containers:
+        - name: echo
+          image: ealen/echo-server:0.9.2
+          ports:
+            - containerPort: 80
+          env:
+            - name: PORT
+              value: "80"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: echo
+spec:
+  selector:
+    app: echo
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public-alb
+  namespace: echo
+spec:
+  gatewayClassName: aws-alb
+  infrastructure:
+    parametersRef:
+      group: gateway.k8s.aws
+      kind: LoadBalancerConfiguration
+      name: public-alb
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: echo.dev.brttech.dev
+      tls:
+        mode: Terminate
+        # LBC ignora certificateRefs; cert vem do LoadBalancerConfiguration.
+        # options dummy só para passar validação do CRD Gateway API.
+        options:
+          alb.gateway.k8s.aws/acm: "true"
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo
+  namespace: echo
+spec:
+  parentRefs:
+    - name: public-alb
+      sectionName: https
+  hostnames:
+    - echo.dev.brttech.dev
+  rules:
+    - backendRefs:
+        - name: echo
+          port: 80
+---
+# HTTP → HTTPS (Chrome/.dev exige TLS)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-http-redirect
+  namespace: echo
+spec:
+  parentRefs:
+    - name: public-alb
+      sectionName: http
+  hostnames:
+    - echo.dev.brttech.dev
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

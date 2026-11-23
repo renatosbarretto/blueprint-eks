@@ -1,0 +1,25 @@
+# Smoke External Secrets (tenant "echo" do cartão lab-dev):
+# Namespace echo e ClusterSecretStore tenant-echo vêm do Terraform (stacks tenants + external-secrets).
+# O store tenant-echo só lê <cluster>/echo/* e só pode ser usado no namespace echo.
+# 1) aws secretsmanager create-secret --name lab-dev/echo/echo-smoke --secret-string '{"token":"hello-eso"}'
+# 2) kubectl apply -f examples/external-secrets/smoke.yaml
+# 3) kubectl get secret echo-smoke -n echo -o jsonpath='{.data.token}' | base64 -d
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: echo-smoke
+  namespace: echo
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: tenant-echo
+    kind: ClusterSecretStore
+  target:
+    name: echo-smoke
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: lab-dev/echo/echo-smoke
+        property: token
