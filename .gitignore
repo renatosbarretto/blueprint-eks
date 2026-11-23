@@ -1,34 +1,42 @@
-# Terraform
-.terraform/
-terraform/.tf-apply-kubeconfig
-terraform/generated-karpenter-provisioners.yaml
-terraform/generated-vpc-cni-eniconfigs.yaml
-*.tfstate
-*.tfstate.*
-*.tfplan
-*.tfvars
-!*.tfvars.example
-tfplan
-*.plan
-*.tfbackend
-!*.tfbackend.example
-.tfdata/
-.plans/
-Untitled
-crash.log
-crash.*.log
-override.tf
-override.tf.json
-
-# Lock file: descomente para não versionar (recomendado versionar para reprodutibilidade)
-# .terraform.lock.hcl
-
 # OS / IDE
 .DS_Store
 .idea/
+.vscode/
 *.swp
-*.swo
+*~
 
-# Local notes (not published)
-RELATORIO_GEMINI.md
-docs/
+# Terraform
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfvars
+!*.tfvars.example
+
+# Secrets / local
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated / temp
+Untitled
+*.log
+tmp/
+.cache/
+
+# Terragrunt
+.terragrunt-cache/
+**/.terragrunt-cache/
+# Lock files só nas stacks (live/stacks/*), não nos módulos
+modules/**/.terraform.lock.hcl

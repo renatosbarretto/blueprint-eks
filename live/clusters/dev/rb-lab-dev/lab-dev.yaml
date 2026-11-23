@@ -1,0 +1,60 @@
+# Cartão do cluster. Nome do arquivo = cluster_name; ambiente = pasta; conta = account.yaml.
+# Merge: live/globals.yaml (defaults) ← account.yaml ← este arquivo.
+
+# --- Identidade ---
+vpc_cidr: 10.10.0.0/16
+
+# --- Versões (promova dev → hml → prd) ---
+cluster_version: "1.37"
+karpenter_version: "1.15.1"
+karpenter_ami_alias: al2023@v20261119
+
+# Versão default validada pela AWS para 1.37 (aws eks describe-addon-versions).
+eks_addon_versions:
+  vpc-cni: v1.22.4-eksbuild.14
+  kube-proxy: v1.37.0-eksbuild.39
+  coredns: v1.14.7-eksbuild.35
+  eks-pod-identity-agent: v1.4.1-eksbuild.3
+  aws-ebs-csi-driver: v1.68.1-eksbuild.1
+  metrics-server: v0.9.1-eksbuild.2
+  eks-node-monitoring-agent: v1.7.7-eksbuild.1
+  amazon-cloudwatch-observability: v8.0.1-eksbuild.1
+
+chart_versions:
+  aws_load_balancer_controller: "3.6.3"
+  external_dns: "1.15.0"
+  external_secrets: "0.16.2"
+  argocd: "7.7.16"
+gateway_api_version: v1.6.0
+
+# --- Componentes ---
+# Sempre criados com o cluster (sem flag): vpc-cni, kube-proxy, coredns (Fargate),
+# eks-pod-identity-agent, Karpenter controller (Fargate), NodePools system/default.
+enable_vpc: true
+enable_breakglass_role: true             # role admin de emergência (exige MFA)
+enable_network_policy: true              # NetworkPolicy no VPC CNI
+enable_flow_logs: false                  # VPC Flow Logs (CloudWatch)
+enable_eks: true
+enable_karpenter: true
+enable_eks_addons: true
+enable_ebs_csi: true                     # + StorageClass gp3 default
+enable_metrics_server: true
+enable_node_monitoring_agent: true
+enable_cloudwatch_observability: false   # Container Insights (custo por métrica/log)
+enable_tenants: true
+enable_gateway_api: true                 # AWS LB Controller + GatewayClass aws-alb/aws-nlb
+enable_external_dns: true
+enable_external_secrets: true
+enable_argocd: false
+
+# --- Tenants (squads) ---
+#   - name: payments
+#     namespaces: [payments]
+#     sso_permission_set: squad-payments   # ou principal_arn
+#     access_policy: edit                  # view | edit | admin
+tenants:
+  - name: echo
+    namespaces: [echo]
+
+extra_tags:
+  Owner: platform

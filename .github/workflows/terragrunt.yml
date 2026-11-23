@@ -1,0 +1,156 @@
+# Plan e apply dos clusters do blueprint.
+#
+# - Pull request: valida os cartões e roda `terragrunt plan` nos clusters afetados
+#   (cartão alterado; ou todos, se modules/, live/stacks/ ou globals.yaml mudaram).
+# - Apply: só manual (workflow_dispatch), um cluster por vez, atrás de um GitHub
+#   Environment com o mesmo nome do cluster (configure "Required reviewers" nele).
+#   Nunca há apply automático em push.
+#
+# Pré-requisitos por conta AWS (uma vez):
+#   TG_CLUSTER=<qualquer cluster da conta> ./scripts/bootstrap-github-oidc.sh
+#   → OIDC provider + roles eks-blueprint-gha-plan (pull_request, leitura) e
+#     eks-blueprint-gha-apply (só jobs com Environment). Os ARNs são derivados da
+#     conta do cartão; access entries das duas já estão em live/globals.yaml.
+# Por cluster: GitHub Environment com o nome do cluster, Required reviewers e
+# deployment branch restrita a main.
+name: terragrunt
+
+on:
+  pull_request:
+    paths:
+      - "live/**"
+      - "modules/**"
+      - ".github/workflows/terragrunt.yml"
+  workflow_dispatch:
+    inputs:
+      cluster:
+        description: "Nome do cluster (arquivo live/clusters/<amb>/<conta>/<cluster>.yaml)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # OIDC para a AWS
+
+env:
+  TF_VERSION: 1.15.1
+  TG_VERSION: 0.76.6
+  TG_NON_INTERACTIVE: "true"
+  TG_NO_COLOR: "true"
+
+jobs:
+  targets:
+    name: Clusters afetados
+    runs-on: ubuntu-latest
+    outputs:
+      clusters: ${{ steps.pick.outputs.clusters }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Validar cartões
+        run: python3 -I scripts/validate-cluster.py
+      - name: Escolher clusters
+        id: pick
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          INPUT: ${{ inputs.cluster }}
+        run: |
+          set -euo pipefail
+          all=$(find live/clusters -mindepth 3 -maxdepth 3 -name '*.yaml' ! -name account.yaml -exec basename {} .yaml \; | sort)
+          if [ -n "${INPUT:-}" ]; then
+            echo "$all" | grep -qx "$INPUT" || { echo "cluster $INPUT não existe"; exit 1; }
+            picked="$INPUT"
+          else
+            changed=$(git diff --name-only "$BASE"...HEAD)
+            if echo "$changed" | grep -qE '^(modules/|live/stacks/|live/_common/|live/root.hcl|live/globals.yaml)'; then
+              picked="$all"
+            else
+              picked=$(echo "$changed" | grep -E '^live/clusters/[^/]+/[^/]+/' | while read -r f; do
+                d=$(dirname "$f")
+                if [ "$(basename "$f")" = account.yaml ]; then
+                  find "$d" -maxdepth 1 -name '*.yaml' ! -name account.yaml -exec basename {} .yaml \;
+                else
+                  basename "$f" .yaml
+                fi
+              done | sort -u)
+            fi
+          fi
+          echo "clusters=$(echo "$picked" | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().split() if l]))')" >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: plan · ${{ matrix.cluster }}
+    needs: targets
+    if: github.event_name == 'pull_request' && needs.targets.outputs.clusters != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cluster: ${{ fromJSON(needs.targets.outputs.clusters) }}
+    env:
+      TG_CLUSTER: ${{ matrix.cluster }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-blueprint
+        with:
+          terraform-version: ${{ env.TF_VERSION }}
+          terragrunt-version: ${{ env.TG_VERSION }}
+      - name: Conta do cluster
+        id: acct
+        run: |
+          echo "id=$(python3 -I scripts/validate-cluster.py "$TG_CLUSTER" --get account_id)" >> "$GITHUB_OUTPUT"
+          echo "region=$(python3 -I scripts/validate-cluster.py "$TG_CLUSTER" --get region)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.id }}:role/eks-blueprint-gha-plan
+          aws-region: ${{ steps.acct.outputs.region }}
+      - name: Conferir conta
+        run: python3 -I scripts/validate-cluster.py "$TG_CLUSTER" --check-account
+      # Cluster ainda não aplicado: as stacks dependentes não têm outputs para planejar
+      # (mocks só valem em validate/destroy, de propósito). Planeja só a VPC e avisa.
+      - name: terragrunt plan
+        working-directory: live/stacks
+        env:
+          REGION: ${{ steps.acct.outputs.region }}
+        run: |
+          set -euo pipefail
+          if aws eks describe-cluster --name "$TG_CLUSTER" --region "$REGION" >/dev/null 2>&1; then
+            terragrunt run --all plan -- -lock=false -input=false
+          else
+            echo "::warning title=${TG_CLUSTER} não aplicado::cluster não existe na conta; plan só da stack vpc (as demais dependem dos outputs dela)."
+            cd vpc && terragrunt plan -lock=false -input=false
+          fi
+
+  apply:
+    name: apply · ${{ inputs.cluster }}
+    needs: targets
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.cluster }} # aprovação obrigatória configurada no Environment
+    concurrency:
+      group: apply-${{ inputs.cluster }}
+      cancel-in-progress: false
+    env:
+      TG_CLUSTER: ${{ inputs.cluster }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-blueprint
+        with:
+          terraform-version: ${{ env.TF_VERSION }}
+          terragrunt-version: ${{ env.TG_VERSION }}
+      - name: Conta do cluster
+        id: acct
+        run: |
+          echo "id=$(python3 -I scripts/validate-cluster.py "$TG_CLUSTER" --get account_id)" >> "$GITHUB_OUTPUT"
+          echo "region=$(python3 -I scripts/validate-cluster.py "$TG_CLUSTER" --get region)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.id }}:role/eks-blueprint-gha-apply
+          aws-region: ${{ steps.acct.outputs.region }}
+          role-duration-seconds: 7200 # apply completo de um cluster passa de 1h
+      - name: apply sequencial (confere a conta antes)
+        run: ./scripts/apply-cluster.sh --yes

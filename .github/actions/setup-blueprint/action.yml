@@ -1,0 +1,30 @@
+name: setup-blueprint
+description: Instala Terraform, Terragrunt (versões fixas) e o PyYAML do validador.
+inputs:
+  terraform-version:
+    required: true
+  terragrunt-version:
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false
+    - name: Terragrunt
+      shell: bash
+      env:
+        TG_VERSION: ${{ inputs.terragrunt-version }}
+      run: |
+        set -euo pipefail
+        url="https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
+        curl -fsSL -o /usr/local/bin/terragrunt "$url"
+        chmod +x /usr/local/bin/terragrunt
+        terragrunt --version
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: PyYAML
+      shell: bash
+      run: pip install pyyaml
